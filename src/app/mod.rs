@@ -696,7 +696,7 @@ impl App {
     }
 
     pub(crate) fn ensure_default_workspace(&mut self) -> bool {
-        if !self.state.workspaces.is_empty() {
+        if !self.state.workspaces.is_empty() || self.state.should_quit {
             return false;
         }
 
@@ -3116,6 +3116,7 @@ mod tests {
             exit_reason: crate::platform::ChildExitReason::Interrupted,
         });
         assert!(app.state.workspaces.is_empty());
+        app.state.should_quit = false; // last pane exit requests exit; recreate as before it
         assert!(app.ensure_default_workspace());
 
         app.save_session_on_shutdown();

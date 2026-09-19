@@ -760,6 +760,7 @@ impl AppState {
         if self.workspaces.is_empty() {
             self.active = None;
             self.selected = 0;
+            self.should_quit = true;
         } else {
             // Keep focus on the previously focused workspace
             if let Some(id) = active_workspace_id {
@@ -2077,6 +2078,7 @@ impl AppState {
                 if self.mode == Mode::Terminal {
                     self.mode = Mode::Navigate;
                 }
+                self.should_quit = true;
             } else {
                 // Keep focus on the previously focused workspace
                 if let Some(id) = active_workspace_id {
