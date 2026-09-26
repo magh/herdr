@@ -240,6 +240,19 @@ pub(crate) fn product_announcement_scroll_metrics(
     )
 }
 
+/// Scroll metrics for a plain text body (one entry per display line).
+pub(crate) fn plain_lines_scroll_metrics(
+    lines: &[String],
+    scroll: u16,
+    body: Rect,
+) -> crate::pane::ScrollMetrics {
+    let display: Vec<(usize, Line<'_>)> = lines
+        .iter()
+        .map(|line| (0, Line::raw(line.clone())))
+        .collect();
+    display_lines_scroll_metrics(&display, scroll, body)
+}
+
 pub(crate) fn release_notes_wrapped_line_count(lines: &[(usize, Line<'_>)], width: u16) -> usize {
     Paragraph::new(
         lines

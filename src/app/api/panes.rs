@@ -10,11 +10,11 @@ use crate::api::schema::{
     PaneNeighborParams, PaneNeighborResult, PaneProcessInfo, PaneProcessInfoParams,
     PaneProcessInfoProcess, PaneReadParams, PaneReadResult, PaneReleaseAgentParams,
     PaneRenameParams, PaneReportAgentParams, PaneReportAgentSessionParams,
-    PaneReportMetadataParams, PaneResizeParams, PaneResizeReason, PaneResizeResult,
-    PaneScrollParams, PaneSelectionReadParams, PaneSendInputParams, PaneSendKeysParams,
-    PaneSendTextParams, PaneSplitParams, PaneSwapParams, PaneSwapReason, PaneSwapResult,
-    PaneTarget, PaneTextPoint, PaneTextRange, PaneZoomMode, PaneZoomParams, PaneZoomReason,
-    PaneZoomResult, ResponseResult,
+    PaneReportAgentSubagentParams, PaneReportMetadataParams, PaneResizeParams, PaneResizeReason,
+    PaneResizeResult, PaneScrollParams, PaneSelectionReadParams, PaneSendInputParams,
+    PaneSendKeysParams, PaneSendTextParams, PaneSplitParams, PaneSwapParams, PaneSwapReason,
+    PaneSwapResult, PaneTarget, PaneTextPoint, PaneTextRange, PaneZoomMode, PaneZoomParams,
+    PaneZoomReason, PaneZoomResult, ResponseResult,
 };
 use crate::app::actions::{PaneZoomCommand, PaneZoomNoopReason};
 use crate::app::App;
@@ -1582,6 +1582,41 @@ impl App {
             session_start_source: crate::agent_resume::normalize_session_start_source(
                 params.session_start_source,
             ),
+        });
+
+        encode_success(id, ResponseResult::Ok {})
+    }
+
+    pub(super) fn handle_pane_report_agent_subagent(
+        &mut self,
+        id: String,
+        params: PaneReportAgentSubagentParams,
+    ) -> String {
+        let Some((_ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
+            return pane_not_found(id, &params.pane_id);
+        };
+        if normalize_reported_agent_label(&params.agent).is_none() {
+            return invalid_agent(id);
+        }
+        let event = match params.event.as_str() {
+            "start" => crate::terminal::subagents::AgentSubagentEvent::Start,
+            "stop" => crate::terminal::subagents::AgentSubagentEvent::Stop,
+            _ => {
+                return encode_error(
+                    id,
+                    "invalid_subagent_event",
+                    "event must be \"start\" or \"stop\"",
+                )
+            }
+        };
+        self.handle_internal_event(crate::events::AppEvent::AgentSubagentReported {
+            pane_id,
+            event,
+            agent_id: params.agent_id,
+            agent_type: params.agent_type,
+            last_message: params.last_assistant_message,
+            transcript_path: params.transcript_path,
+            seq: params.seq,
         });
 
         encode_success(id, ResponseResult::Ok {})

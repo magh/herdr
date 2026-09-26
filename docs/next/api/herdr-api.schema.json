@@ -1376,6 +1376,21 @@
           ],
           "type": "string"
         },
+        "AgentSubagentTranscriptParams": {
+          "properties": {
+            "agent_id": {
+              "type": "string"
+            },
+            "pane_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pane_id",
+            "agent_id"
+          ],
+          "type": "object"
+        },
         "AgentTarget": {
           "properties": {
             "target": {
@@ -3072,6 +3087,58 @@
             "pane_id",
             "source",
             "agent"
+          ],
+          "type": "object"
+        },
+        "PaneReportAgentSubagentParams": {
+          "properties": {
+            "agent": {
+              "type": "string"
+            },
+            "agent_id": {
+              "type": "string"
+            },
+            "agent_type": {
+              "type": "string"
+            },
+            "event": {
+              "description": "Sub-agent lifecycle event: \"start\" or \"stop\".",
+              "type": "string"
+            },
+            "last_assistant_message": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "pane_id": {
+              "type": "string"
+            },
+            "seq": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "source": {
+              "type": "string"
+            },
+            "transcript_path": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "pane_id",
+            "source",
+            "agent",
+            "event",
+            "agent_id",
+            "agent_type"
           ],
           "type": "object"
         },
@@ -5486,6 +5553,22 @@
         {
           "properties": {
             "method": {
+              "const": "agent.subagent_transcript",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/AgentSubagentTranscriptParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
               "const": "pane.split",
               "type": "string"
             },
@@ -6035,6 +6118,22 @@
             },
             "params": {
               "$ref": "#/schemas/request/$defs/PaneReportAgentSessionParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "pane.report_agent_subagent",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/PaneReportAgentSubagentParams"
             }
           },
           "required": [
@@ -6699,6 +6798,12 @@
               },
               "type": "object"
             },
+            "subagents": {
+              "items": {
+                "$ref": "#/schemas/success_response/$defs/AgentSubagentInfo"
+              },
+              "type": "array"
+            },
             "tab_id": {
               "type": "string"
             },
@@ -6848,6 +6953,31 @@
             "unknown"
           ],
           "type": "string"
+        },
+        "AgentSubagentInfo": {
+          "properties": {
+            "agent_id": {
+              "type": "string"
+            },
+            "agent_status": {
+              "$ref": "#/schemas/success_response/$defs/AgentStatus"
+            },
+            "agent_type": {
+              "type": "string"
+            },
+            "last_message": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "agent_id",
+            "agent_type",
+            "agent_status"
+          ],
+          "type": "object"
         },
         "ClientWindowTitleReason": {
           "enum": [
@@ -9575,6 +9705,25 @@
               "required": [
                 "type",
                 "agents"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "lines": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "type": {
+                  "const": "agent_subagent_transcript",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "lines"
               ],
               "type": "object"
             },

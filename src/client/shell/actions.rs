@@ -301,6 +301,75 @@ impl ClientShellState {
         self.push_endpoint_method_with_kind(method, PendingEndpointKind::Generic, outcome);
     }
 
+    /// Requests the transcript for the sub-agent shown in the open viewer.
+    pub(super) fn queue_subagent_transcript(
+        &mut self,
+        now: std::time::Instant,
+        outcome: &mut ClientShellInput,
+    ) {
+        let (pane_id, agent_id, first_load) = match self.overlay.as_ref() {
+            Some(ClientShellOverlay::Subagent(overlay)) if !overlay.request_in_flight => (
+                overlay.pane_id.clone(),
+                overlay.agent_id.clone(),
+                overlay.lines.is_empty() && overlay.error.is_none(),
+            ),
+            _ => return,
+        };
+        let sent = self.push_endpoint_method_with_kind(
+            crate::api::schema::Method::AgentSubagentTranscript(
+                crate::api::schema::AgentSubagentTranscriptParams {
+                    pane_id: pane_id.clone(),
+                    agent_id: agent_id.clone(),
+                },
+            ),
+            PendingEndpointKind::SubagentTranscript { pane_id, agent_id },
+            outcome,
+        );
+        if let Some(ClientShellOverlay::Subagent(overlay)) = self.overlay.as_mut() {
+            if sent {
+                overlay.request_in_flight = true;
+                overlay.loading = first_load;
+                overlay.refresh_at = Some(now + std::time::Duration::from_secs(1));
+            } else {
+                overlay.loading = false;
+                overlay.error = Some("transcript request failed".to_string());
+                overlay.refresh_at = Some(now + std::time::Duration::from_secs(5));
+            }
+        }
+        outcome.repaint = true;
+    }
+
+    /// Lands a sub-agent transcript response in the open viewer. Fetch errors
+    /// surface inside the overlay instead of as global endpoint notices.
+    fn complete_subagent_transcript(
+        &mut self,
+        pane_id: &str,
+        agent_id: &str,
+        result: Result<crate::api::schema::ResponseResult, ClientShellEndpointError>,
+    ) -> bool {
+        let Some(ClientShellOverlay::Subagent(overlay)) = self.overlay.as_mut() else {
+            return false;
+        };
+        if overlay.pane_id != pane_id || overlay.agent_id != agent_id {
+            return false;
+        }
+        overlay.request_in_flight = false;
+        overlay.loading = false;
+        match result {
+            Ok(crate::api::schema::ResponseResult::AgentSubagentTranscript { lines }) => {
+                overlay.error = None;
+                overlay.lines = lines;
+            }
+            Ok(_) => {
+                overlay.error = Some("unexpected server response".to_string());
+            }
+            Err(error) => {
+                overlay.error = Some(error.message.clone());
+            }
+        }
+        true
+    }
+
     pub(super) fn push_endpoint_notice(
         &mut self,
         kind: ClientEndpointNoticeKind,
@@ -485,6 +554,10 @@ impl ClientShellState {
         }
         if let PendingEndpointKind::PaneLinkResolve { target } = pending.kind {
             return self.complete_link_hover(target, result);
+        }
+        if let PendingEndpointKind::SubagentTranscript { pane_id, agent_id } = &pending.kind {
+            let repaint = self.complete_subagent_transcript(pane_id, agent_id, result);
+            return (repaint, Vec::new());
         }
         if result.is_ok() {
             let timeout_key = ClientEndpointNoticeKey {

@@ -802,6 +802,70 @@ impl ClientShellState {
             }
             return;
         }
+        if matches!(self.overlay, Some(ClientShellOverlay::Subagent(_))) {
+            let (close, track, metrics) = self
+                .current_subagent_input_geometry()
+                .map(|(close, track, metrics)| (close, track, Some(metrics)))
+                .unwrap_or((
+                    self.hits.overlay_primary,
+                    (!self.hits.subagent_scrollbar.is_empty())
+                        .then_some(self.hits.subagent_scrollbar),
+                    self.hits.subagent_scroll_metrics,
+                ));
+            match mouse.kind {
+                MouseEventKind::Down(MouseButton::Left) if super::contains(close, point) => {
+                    self.close_subagent_viewer();
+                    outcome.repaint = true;
+                }
+                MouseEventKind::Down(MouseButton::Left)
+                    if track.is_some_and(|track| super::contains(track, point)) =>
+                {
+                    if let (Some(track), Some(metrics)) = (track, metrics) {
+                        if let Some(grab_row_offset) =
+                            crate::ui::scrollbar_thumb_grab_offset(metrics, track, mouse.row)
+                        {
+                            self.chrome_drag =
+                                Some(ClientChromeDrag::SubagentScrollbar { grab_row_offset });
+                        } else {
+                            let offset =
+                                crate::ui::scrollbar_offset_from_row(metrics, track, mouse.row);
+                            self.set_subagent_offset_from_bottom(offset);
+                            outcome.repaint = true;
+                        }
+                    }
+                }
+                MouseEventKind::Drag(MouseButton::Left) => {
+                    if let (
+                        Some(ClientChromeDrag::SubagentScrollbar { grab_row_offset }),
+                        Some(track),
+                        Some(metrics),
+                    ) = (self.chrome_drag.as_ref(), track, metrics)
+                    {
+                        let offset = crate::ui::scrollbar_offset_from_drag_row(
+                            metrics,
+                            track,
+                            mouse.row,
+                            *grab_row_offset,
+                        );
+                        self.set_subagent_offset_from_bottom(offset);
+                        outcome.repaint = true;
+                    }
+                }
+                MouseEventKind::Up(MouseButton::Left) => {
+                    self.chrome_drag = None;
+                }
+                MouseEventKind::ScrollUp => {
+                    self.scroll_subagent(-3);
+                    outcome.repaint = true;
+                }
+                MouseEventKind::ScrollDown => {
+                    self.scroll_subagent(3);
+                    outcome.repaint = true;
+                }
+                _ => {}
+            }
+            return;
+        }
         if self.url_click_consumes_until_up {
             match mouse.kind {
                 MouseEventKind::Drag(MouseButton::Left) => return,
@@ -1013,6 +1077,19 @@ impl ClientShellState {
                             self.workspace_scroll = next;
                             outcome.repaint = true;
                         }
+                    }
+                    return;
+                }
+                Some(ClientChromeDrag::SubagentScrollbar { grab_row_offset }) => {
+                    if let Some(metrics) = self.hits.subagent_scroll_metrics {
+                        let offset = crate::ui::scrollbar_offset_from_drag_row(
+                            metrics,
+                            self.hits.subagent_scrollbar,
+                            mouse.row,
+                            *grab_row_offset,
+                        );
+                        self.set_subagent_offset_from_bottom(offset);
+                        outcome.repaint = true;
                     }
                     return;
                 }
@@ -1318,7 +1395,8 @@ impl ClientShellState {
                     | ClientChromeDrag::AgentScrollbar { .. }
                     | ClientChromeDrag::HelpScrollbar { .. }
                     | ClientChromeDrag::ProductAnnouncementScrollbar { .. }
-                    | ClientChromeDrag::ReleaseNotesScrollbar { .. } => {}
+                    | ClientChromeDrag::ReleaseNotesScrollbar { .. }
+                    | ClientChromeDrag::SubagentScrollbar { .. } => {}
                 }
                 return;
             }
@@ -2093,6 +2171,33 @@ impl ClientShellState {
                     return;
                 }
                 if self.handle_endpoint_agent_click(point, outcome) {
+                    return;
+                }
+                let subagent_hit = self
+                    .hits
+                    .agent_subagents
+                    .iter()
+                    .find(|(rect, _, _)| super::contains(*rect, point))
+                    .map(|(_, pane_id, agent_id)| (pane_id.clone(), agent_id.clone()));
+                if let Some((pane_id, agent_id)) = subagent_hit {
+                    let agent_type = self
+                        .snapshot
+                        .as_deref()
+                        .and_then(|snapshot| {
+                            snapshot
+                                .agents
+                                .iter()
+                                .find(|agent| agent.pane_id == pane_id)
+                        })
+                        .and_then(|agent| {
+                            agent
+                                .subagents
+                                .iter()
+                                .find(|subagent| subagent.agent_id == agent_id)
+                        })
+                        .map(|subagent| subagent.agent_type.clone())
+                        .unwrap_or_else(|| "unknown".to_string());
+                    self.open_subagent_viewer(&pane_id, &agent_id, &agent_type, outcome);
                     return;
                 }
                 let agent_pane_id = self

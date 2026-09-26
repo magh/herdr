@@ -1583,6 +1583,27 @@ impl AppState {
                 })
                 .into_iter()
                 .collect(),
+            AppEvent::AgentSubagentReported {
+                pane_id,
+                event,
+                agent_id,
+                agent_type,
+                last_message,
+                transcript_path,
+                seq,
+            } => self
+                .update_terminal_state(pane_id, |terminal| {
+                    terminal.set_agent_subagent_report(
+                        event,
+                        agent_id,
+                        agent_type,
+                        last_message,
+                        transcript_path,
+                        seq,
+                    )
+                })
+                .into_iter()
+                .collect(),
             AppEvent::HookMetadataReported {
                 pane_id,
                 source,

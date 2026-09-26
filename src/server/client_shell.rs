@@ -149,6 +149,7 @@ pub(super) fn snapshot(
                 state_change_seq: agent.state_change_seq,
                 state_labels,
                 tokens,
+                subagents: agent.subagents,
                 focused,
             }
         })

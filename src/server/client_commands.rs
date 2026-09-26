@@ -13,6 +13,7 @@ pub(crate) const MAX_ENDPOINT_REQUEST_ID_BYTES: usize = 128;
 const ENDPOINT_RESPONSE_CHUNK_BYTES: usize = 512 * 1024;
 
 const CLIENT_SHELL_METHODS: &[&str] = &[
+    "agent.subagent_transcript",
     "client_shell.surface.set",
     "command.invoke",
     "integration.install",
@@ -291,6 +292,11 @@ mod tests {
         assert_eq!(
             actual.remove("pane.link.resolve").as_deref(),
             Some("f5e4a3e01453ae7b188f127ce951c12c20e0bebcc17cc364eeb6d1a01fd5bf81")
+        );
+        // Local fork addition; not part of the published v1 contract.
+        assert_eq!(
+            actual.remove("agent.subagent_transcript").as_deref(),
+            Some("8a9468faafa8769fddea6829e6a2574e48099842a77ad7ea55dcfe721b654248")
         );
 
         assert_eq!(

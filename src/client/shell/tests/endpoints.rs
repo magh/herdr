@@ -23,6 +23,7 @@ fn agent(
     state_change_seq: u64,
 ) -> ClientShellAgent {
     ClientShellAgent {
+        subagents: Vec::new(),
         pane_id: "pane_1".into(),
         workspace_id: "ws_1".into(),
         tab_id: "tab_1".into(),
@@ -1125,6 +1126,7 @@ fn current_workspace_or_blocked_keeps_foreign_attention_only() {
     remote.agents = vec![
         agent("remote idle", AgentStatus::Idle, 1),
         ClientShellAgent {
+            subagents: Vec::new(),
             pane_id: "pane_2".into(),
             name: Some("remote blocked".into()),
             agent_status: AgentStatus::Blocked,

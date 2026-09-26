@@ -2205,6 +2205,22 @@ mod tests {
                 },
             ),
         };
+        let pane_report_agent_subagent = crate::api::schema::Request {
+            id: "req_13".into(),
+            method: crate::api::schema::Method::PaneReportAgentSubagent(
+                crate::api::schema::PaneReportAgentSubagentParams {
+                    pane_id: "w1:p1".into(),
+                    source: "herdr:claude".into(),
+                    agent: "claude".into(),
+                    event: "start".into(),
+                    agent_id: "agent-1".into(),
+                    agent_type: "Explore".into(),
+                    seq: Some(1),
+                    last_assistant_message: None,
+                    transcript_path: None,
+                },
+            ),
+        };
 
         assert!(!crate::api::request_changes_ui(&read_only));
         assert!(!crate::api::request_changes_ui(&worktree_list));
@@ -2216,6 +2232,7 @@ mod tests {
         assert!(crate::api::request_changes_ui(&pane_resize));
         assert!(crate::api::request_changes_ui(&agent_view));
         assert!(crate::api::request_changes_ui(&command_invoke));
+        assert!(crate::api::request_changes_ui(&pane_report_agent_subagent));
         assert!(crate::api::request_changes_ui(&announcement_dismiss));
         assert!(crate::api::request_changes_ui(&release_notes_dismiss));
     }

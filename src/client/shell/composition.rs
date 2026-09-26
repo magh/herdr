@@ -666,6 +666,9 @@ impl ClientShellState {
                 self.hits.release_notes_scrollbar = rendered.release_notes_scrollbar;
                 self.hits.release_notes_scroll_metrics = rendered.release_notes_scroll_metrics;
                 self.hits.release_notes_max_scroll = rendered.release_notes_max_scroll;
+                self.hits.subagent_scrollbar = rendered.subagent_scrollbar;
+                self.hits.subagent_scroll_metrics = rendered.subagent_scroll_metrics;
+                self.hits.subagent_max_scroll = rendered.subagent_max_scroll;
                 rendered.cursor
             };
             frame.replace_from_ratatui_buffer_preserving_effects(&composed, cursor);
@@ -682,6 +685,11 @@ impl ClientShellState {
             notes.scroll = notes
                 .scroll
                 .min(u16::try_from(self.hits.release_notes_max_scroll).unwrap_or(u16::MAX));
+        }
+        if let Some(ClientShellOverlay::Subagent(overlay)) = self.overlay.as_mut() {
+            overlay.scroll = overlay
+                .scroll
+                .min(u16::try_from(self.hits.subagent_max_scroll).unwrap_or(u16::MAX));
         }
         if self.endpoint_status(&self.active_endpoint_id) != Some(ClientEndpointStatus::Online) {
             frame.cursor = None;

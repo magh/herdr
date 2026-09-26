@@ -3,8 +3,8 @@ use std::time::Duration;
 use bytes::Bytes;
 
 use crate::api::schema::{
-    AgentPromptParams, AgentRenameParams, AgentSendKeysParams, AgentStartParams, AgentTarget,
-    PaneReadResult, ResponseResult,
+    AgentPromptParams, AgentRenameParams, AgentSendKeysParams, AgentStartParams,
+    AgentSubagentTranscriptParams, AgentTarget, PaneReadResult, ResponseResult,
 };
 use crate::app::App;
 
@@ -32,6 +32,32 @@ fn append_codex_paste_boundary(runtime: &crate::terminal::TerminalRuntime, text:
     }
 }
 
+/// Upper bound on transcript bytes read for display.
+const TRANSCRIPT_TAIL_BYTES: u64 = 256 * 1024;
+
+/// Reads the last [`TRANSCRIPT_TAIL_BYTES`] of a transcript, dropping any
+/// partial first line introduced by the seek. Returns `None` when the file
+/// cannot be read.
+fn read_transcript_tail(path: &str) -> Option<String> {
+    use std::io::{Read as _, Seek as _};
+    let mut file = std::fs::File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    let start = len.saturating_sub(TRANSCRIPT_TAIL_BYTES);
+    file.seek(std::io::SeekFrom::Start(start)).ok()?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).ok()?;
+    let content = String::from_utf8_lossy(&bytes).into_owned();
+    if start > 0 {
+        // Drop a possibly partial first line from the tail seek.
+        let content = match content.find('\n') {
+            Some(pos) => content[pos + 1..].to_string(),
+            None => String::new(),
+        };
+        return Some(content);
+    }
+    Some(content)
+}
+
 impl App {
     pub(super) fn handle_agent_list(&mut self, id: String) -> String {
         encode_success(
@@ -40,6 +66,42 @@ impl App {
                 agents: self.collect_agent_infos(),
             },
         )
+    }
+
+    pub(super) fn handle_agent_subagent_transcript(
+        &mut self,
+        id: String,
+        params: AgentSubagentTranscriptParams,
+    ) -> String {
+        let Some((ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
+            return encode_error(id, "pane_not_found", "pane not found");
+        };
+        let entry = self
+            .state
+            .workspaces
+            .get(ws_idx)
+            .and_then(|ws| ws.pane_state(pane_id))
+            .and_then(|pane_state| self.state.terminals.get(&pane_state.attached_terminal_id))
+            .and_then(|terminal| terminal.agent_subagents.find(&params.agent_id))
+            .cloned();
+        let Some(entry) = entry else {
+            return encode_error(id, "subagent_not_found", "sub-agent not tracked for pane");
+        };
+        let Some(path) = entry.transcript_path.as_deref() else {
+            return encode_error(id, "transcript_unavailable", "sub-agent has no transcript");
+        };
+        if !path.ends_with(".jsonl") {
+            return encode_error(id, "transcript_unavailable", "unexpected transcript path");
+        }
+        match read_transcript_tail(path) {
+            Some(content) => encode_success(
+                id,
+                ResponseResult::AgentSubagentTranscript {
+                    lines: crate::subagent_transcript::render_transcript(&content),
+                },
+            ),
+            None => encode_error(id, "transcript_unavailable", "transcript unreadable"),
+        }
     }
 
     pub(super) fn handle_agent_get(&mut self, id: String, target: AgentTarget) -> String {

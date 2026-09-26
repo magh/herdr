@@ -388,6 +388,24 @@ impl App {
             state_labels: pane.state_labels,
             tokens: pane.tokens,
             agent_session: pane.agent_session,
+            subagents: terminal
+                .agent_subagents
+                .entries()
+                .iter()
+                .map(|entry| crate::api::schema::AgentSubagentInfo {
+                    agent_id: entry.agent_id.clone(),
+                    agent_type: entry.agent_type.clone(),
+                    agent_status: match entry.status {
+                        crate::terminal::subagents::AgentSubagentStatus::Running => {
+                            crate::api::schema::AgentStatus::Working
+                        }
+                        crate::terminal::subagents::AgentSubagentStatus::Done => {
+                            crate::api::schema::AgentStatus::Done
+                        }
+                    },
+                    last_message: entry.last_message.clone(),
+                })
+                .collect(),
             workspace_id: pane.workspace_id,
             tab_id: pane.tab_id,
             pane_id: pane.pane_id,

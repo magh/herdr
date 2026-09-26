@@ -17,6 +17,19 @@ pub(super) struct AgentRow {
     pub(super) rows: Vec<Vec<crate::ui::ResolvedToken>>,
 }
 
+pub(super) struct SubagentRow {
+    pub(super) pane_id: String,
+    pub(super) agent_id: String,
+    pub(super) status: crate::api::schema::AgentStatus,
+    pub(super) last_sibling: bool,
+    pub(super) text: String,
+}
+
+pub(super) enum AgentPanelRow {
+    Agent(AgentRow),
+    Subagent(SubagentRow),
+}
+
 pub(super) fn ordered_agent_pane_ids(
     snapshot: &ClientShellSnapshot,
     sort: crate::config::AgentPanelSortConfig,
@@ -67,7 +80,7 @@ pub(super) fn render_agent_panel(
         return;
     }
 
-    let rows = agent_rows(snapshot, config, None);
+    let rows = agent_panel_rows(snapshot, config);
     render_agent_list(
         buffer,
         area,
@@ -79,12 +92,72 @@ pub(super) fn render_agent_panel(
         config,
         agent_scroll,
         hits,
-        |row| row.rows.len(),
-        |buffer, rect, row, hits| {
-            hits.agents.push((rect, row.pane_id.clone()));
-            render_agent_row(buffer, rect, row, config);
+        |row| match row {
+            AgentPanelRow::Agent(row) => row.rows.len(),
+            AgentPanelRow::Subagent(_) => 1,
+        },
+        |buffer, rect, row, hits| match row {
+            AgentPanelRow::Agent(row) => {
+                hits.agents.push((rect, row.pane_id.clone()));
+                render_agent_row(buffer, rect, row, config);
+            }
+            AgentPanelRow::Subagent(row) => {
+                hits.agent_subagents
+                    .push((rect, row.pane_id.clone(), row.agent_id.clone()));
+                render_subagent_row(buffer, rect, row, config);
+            }
         },
     );
+}
+
+/// Rows for the single-machine agents panel: one row per agent pane, with its
+/// reported sub-agents nested directly underneath in both sort modes.
+pub(super) fn agent_panel_rows(
+    snapshot: &ClientShellSnapshot,
+    config: &ClientShellConfig,
+) -> Vec<AgentPanelRow> {
+    let mut rows = Vec::new();
+    for pane_id in ordered_agent_pane_ids(snapshot, config.agent_panel_sort) {
+        let Some(agent) = snapshot
+            .agents
+            .iter()
+            .find(|agent| agent.pane_id == pane_id)
+        else {
+            continue;
+        };
+        if let Some(row) = agent_row(snapshot, &pane_id, config, None) {
+            rows.push(AgentPanelRow::Agent(row));
+        }
+        for (index, subagent) in agent.subagents.iter().enumerate() {
+            rows.push(AgentPanelRow::Subagent(SubagentRow {
+                pane_id: agent.pane_id.clone(),
+                agent_id: subagent.agent_id.clone(),
+                status: subagent.agent_status,
+                last_sibling: index + 1 == agent.subagents.len(),
+                text: subagent_row_text(subagent),
+            }));
+        }
+    }
+    rows
+}
+
+fn subagent_row_text(subagent: &crate::api::schema::AgentSubagentInfo) -> String {
+    match subagent.last_message.as_deref() {
+        Some(message) if !message.trim().is_empty() => format!(
+            "{}: {}",
+            subagent.agent_type,
+            truncate_for_display(message.trim(), 120)
+        ),
+        _ => subagent.agent_type.clone(),
+    }
+}
+
+fn truncate_for_display(text: &str, max: usize) -> String {
+    if text.chars().count() <= max {
+        return text.to_string();
+    }
+    let cut: String = text.chars().take(max.saturating_sub(1)).collect();
+    format!("{cut}…")
 }
 
 pub(super) fn render_agent_panel_header(
@@ -234,17 +307,6 @@ pub(super) fn render_agent_list<T>(
     }
 }
 
-pub(super) fn agent_rows(
-    snapshot: &ClientShellSnapshot,
-    config: &ClientShellConfig,
-    machine: Option<&str>,
-) -> Vec<AgentRow> {
-    ordered_agent_pane_ids(snapshot, config.agent_panel_sort)
-        .into_iter()
-        .filter_map(|pane_id| agent_row(snapshot, &pane_id, config, machine))
-        .collect()
-}
-
 pub(super) fn agent_row(
     snapshot: &ClientShellSnapshot,
     pane_id: &str,
@@ -371,6 +433,37 @@ pub(super) fn render_agent_row(
             buffer,
         );
     }
+}
+
+pub(super) fn render_subagent_row(
+    buffer: &mut Buffer,
+    rect: Rect,
+    row: &SubagentRow,
+    config: &ClientShellConfig,
+) {
+    let palette = &config.palette;
+    let glyph_style = Style::default().fg(palette.overlay0);
+    let icon_style = Style::default().fg(status_color(row.status, palette));
+    let text_style = Style::default().fg(palette.subtext0);
+    let glyph = if row.last_sibling {
+        "└─ "
+    } else {
+        "├─ "
+    };
+    let spans = vec![
+        ratatui::text::Span::raw(" "),
+        ratatui::text::Span::styled(glyph, glyph_style),
+        ratatui::text::Span::styled(
+            status_icon(row.status, config.status_indicators),
+            icon_style,
+        ),
+        ratatui::text::Span::raw(" "),
+        ratatui::text::Span::styled(
+            truncate_for_display(&row.text, rect.width.saturating_sub(6) as usize),
+            text_style,
+        ),
+    ];
+    Paragraph::new(Line::from(spans)).render(rect, buffer);
 }
 
 fn put_text(buffer: &mut Buffer, x: u16, y: u16, width: u16, text: &str, style: Style) {

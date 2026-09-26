@@ -94,11 +94,15 @@ pub(super) struct ShellHitMap {
     pub(super) popup: Option<PaneHit>,
     pub(super) pane_splits: Vec<PaneSplitHit>,
     pub(super) agents: Vec<(Rect, String)>,
+    pub(super) agent_subagents: Vec<(Rect, String, String)>,
     pub(super) endpoint_agents: Vec<(Rect, ClientEndpointId, String)>,
     pub(super) agent_body: Rect,
     pub(super) agent_scrollbar: Rect,
     pub(super) agent_scroll_metrics: Option<crate::pane::ScrollMetrics>,
     pub(super) agent_max_scroll: usize,
+    pub(super) subagent_scrollbar: Rect,
+    pub(super) subagent_scroll_metrics: Option<crate::pane::ScrollMetrics>,
+    pub(super) subagent_max_scroll: usize,
     pub(super) agent_sort_toggle: Rect,
     pub(super) sidebar_divider: Rect,
     pub(super) sidebar_section_divider: Rect,
@@ -202,6 +206,9 @@ pub(super) enum ClientChromeDrag {
     ReleaseNotesScrollbar {
         grab_row_offset: u16,
     },
+    SubagentScrollbar {
+        grab_row_offset: u16,
+    },
     Tab {
         tab_id: String,
         workspace_id: String,
@@ -276,6 +283,7 @@ pub(super) enum ClientShellOverlayKind {
     Onboarding,
     ProductAnnouncement,
     ReleaseNotes,
+    Subagent,
     Rename,
     ConfirmClose,
     Help,
@@ -568,10 +576,24 @@ pub(super) struct ClientConfirmCloseOverlay {
 }
 
 #[derive(Debug)]
+pub(super) struct ClientSubagentOverlay {
+    pub(super) pane_id: String,
+    pub(super) agent_id: String,
+    pub(super) agent_type: String,
+    pub(super) lines: Vec<String>,
+    pub(super) error: Option<String>,
+    pub(super) loading: bool,
+    pub(super) scroll: u16,
+    pub(super) refresh_at: Option<std::time::Instant>,
+    pub(super) request_in_flight: bool,
+}
+
+#[derive(Debug)]
 pub(super) enum ClientShellOverlay {
     Onboarding,
     ProductAnnouncement(crate::app::state::ProductAnnouncementState),
     ReleaseNotes(crate::app::state::ReleaseNotesState),
+    Subagent(ClientSubagentOverlay),
     Rename(ClientRenameOverlay),
     ConfirmClose(ClientConfirmCloseOverlay),
     Help(ClientHelpOverlay),
@@ -590,6 +612,7 @@ impl ClientShellOverlay {
             Self::Onboarding => ClientShellOverlayKind::Onboarding,
             Self::ProductAnnouncement(_) => ClientShellOverlayKind::ProductAnnouncement,
             Self::ReleaseNotes(_) => ClientShellOverlayKind::ReleaseNotes,
+            Self::Subagent(_) => ClientShellOverlayKind::Subagent,
             Self::Rename(_) => ClientShellOverlayKind::Rename,
             Self::ConfirmClose(_) => ClientShellOverlayKind::ConfirmClose,
             Self::Help(_) => ClientShellOverlayKind::Help,
@@ -616,6 +639,10 @@ pub(super) enum PendingEndpointKind {
     ReloadConfig,
     IntegrationList,
     IntegrationInstall,
+    SubagentTranscript {
+        pane_id: String,
+        agent_id: String,
+    },
     PrepareWorktreeCreate {
         workspace_id: String,
     },
@@ -1820,6 +1847,24 @@ impl ClientShellState {
         self.endpoint_error_deadline = Some(
             std::time::Instant::now() + std::time::Duration::from_secs(ENDPOINT_ERROR_TIMEOUT_SECS),
         );
+    }
+
+    /// Re-fetches the open sub-agent transcript on its refresh deadline.
+    pub(crate) fn tick_subagent_viewer(
+        &mut self,
+        now: std::time::Instant,
+        outcome: &mut ClientShellInput,
+    ) {
+        let Some(ClientShellOverlay::Subagent(overlay)) = self.overlay.as_ref() else {
+            return;
+        };
+        if overlay.request_in_flight {
+            return;
+        }
+        if overlay.refresh_at.is_some_and(|deadline| now < deadline) {
+            return;
+        }
+        self.queue_subagent_transcript(now, outcome);
     }
 
     pub(crate) fn tick_endpoint_error(&mut self, now: std::time::Instant) -> bool {

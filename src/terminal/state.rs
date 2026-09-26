@@ -128,6 +128,7 @@ pub struct TerminalState {
     pub agent_metadata: HashMap<String, AgentMetadata>,
     pub metadata_tokens: crate::metadata_tokens::MetadataTokens,
     pub persisted_agent_session: Option<crate::agent_resume::PersistedAgentSession>,
+    pub agent_subagents: crate::terminal::subagents::AgentSubagentRegistry,
     pub terminal_title: Option<String>,
     pub manual_label: Option<String>,
     pub agent_name: Option<String>,
@@ -163,6 +164,7 @@ impl TerminalState {
             agent_metadata: HashMap::new(),
             metadata_tokens: crate::metadata_tokens::MetadataTokens::default(),
             persisted_agent_session: None,
+            agent_subagents: crate::terminal::subagents::AgentSubagentRegistry::default(),
             terminal_title: None,
             manual_label: None,
             agent_name: None,
@@ -1393,6 +1395,28 @@ impl TerminalState {
         self.set_agent_session_ref_for_session_start(source, agent_label, session_ref, seq, None)
     }
 
+    /// Records a sub-agent lifecycle report. Purely informational: the returned
+    /// mutation never carries state or session changes (see `terminal::subagents`).
+    pub fn set_agent_subagent_report(
+        &mut self,
+        event: crate::terminal::subagents::AgentSubagentEvent,
+        agent_id: String,
+        agent_type: String,
+        last_message: Option<String>,
+        transcript_path: Option<String>,
+        seq: Option<u64>,
+    ) -> Option<TerminalStateMutation> {
+        let changed = match event {
+            crate::terminal::subagents::AgentSubagentEvent::Start => self
+                .agent_subagents
+                .report_start(&agent_id, agent_type, transcript_path, seq),
+            crate::terminal::subagents::AgentSubagentEvent::Stop => self
+                .agent_subagents
+                .report_stop(&agent_id, agent_type, last_message, transcript_path, seq),
+        };
+        changed.then(TerminalStateMutation::default)
+    }
+
     pub fn set_agent_session_ref_for_session_start(
         &mut self,
         source: String,
@@ -1401,6 +1425,9 @@ impl TerminalState {
         seq: Option<u64>,
         session_start_source: Option<String>,
     ) -> Option<TerminalStateMutation> {
+        // A parent session start invalidates tracked sub-agents even when the
+        // session report itself is dropped by the checks below.
+        self.agent_subagents.note_session_start(seq);
         let session_ref = session_ref?;
         let known_agent = crate::detect::parse_agent_label(&agent_label);
         let process_present = known_agent.is_some()
@@ -2208,6 +2235,66 @@ mod tests {
 
     fn test_terminal() -> TerminalState {
         TerminalState::new(TerminalId::alloc(), "/tmp".into())
+    }
+
+    #[test]
+    fn subagent_reports_stay_informational() {
+        let mut terminal = test_terminal();
+        terminal.set_hook_authority(
+            "herdr:claude".into(),
+            "claude".into(),
+            AgentState::Idle,
+            None,
+            Some(1),
+        );
+        let session_ref =
+            crate::agent_resume::AgentSessionRef::id("claude-session").expect("valid id");
+
+        assert!(terminal
+            .set_agent_subagent_report(
+                crate::terminal::subagents::AgentSubagentEvent::Start,
+                "agent-1".into(),
+                "Explore".into(),
+                None,
+                Some("/tmp/subagents/agent-agent-1.jsonl".into()),
+                Some(100),
+            )
+            .is_some());
+        assert!(terminal
+            .set_agent_subagent_report(
+                crate::terminal::subagents::AgentSubagentEvent::Stop,
+                "agent-1".into(),
+                "Explore".into(),
+                Some("found 3 issues".into()),
+                Some("/tmp/subagents/agent-agent-1.jsonl".into()),
+                Some(200),
+            )
+            .is_some());
+
+        // Sub-agent reports never claim pane authority or session identity.
+        let authority = terminal.hook_authority.as_ref().expect("authority kept");
+        assert_eq!(authority.state, AgentState::Idle);
+        assert_eq!(terminal.state, AgentState::Idle);
+        assert!(terminal.persisted_agent_session.is_none());
+        let entry = terminal
+            .agent_subagents
+            .find("agent-1")
+            .expect("entry kept");
+        assert_eq!(
+            entry.status,
+            crate::terminal::subagents::AgentSubagentStatus::Done
+        );
+        assert_eq!(entry.last_message.as_deref(), Some("found 3 issues"));
+
+        // A parent session start clears the registry.
+        terminal.set_agent_session_ref_for_session_start(
+            "herdr:claude".into(),
+            "claude".into(),
+            Some(session_ref),
+            Some(300),
+            Some("startup".into()),
+        );
+        assert!(terminal.agent_subagents.entries().is_empty());
     }
 
     fn test_session_path(name: &str) -> String {

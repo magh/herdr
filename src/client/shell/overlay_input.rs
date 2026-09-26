@@ -101,6 +101,101 @@ impl ClientShellState {
         outcome.repaint = true;
     }
 
+    pub(super) fn open_subagent_viewer(
+        &mut self,
+        pane_id: &str,
+        agent_id: &str,
+        agent_type: &str,
+        outcome: &mut ClientShellInput,
+    ) {
+        self.overlay = Some(ClientShellOverlay::Subagent(ClientSubagentOverlay {
+            pane_id: pane_id.to_string(),
+            agent_id: agent_id.to_string(),
+            agent_type: agent_type.to_string(),
+            lines: Vec::new(),
+            error: None,
+            loading: true,
+            scroll: 0,
+            refresh_at: None,
+            request_in_flight: false,
+        }));
+        self.chrome_drag = None;
+        self.queue_subagent_transcript(std::time::Instant::now(), outcome);
+        outcome.repaint = true;
+    }
+
+    pub(super) fn close_subagent_viewer(&mut self) {
+        if matches!(self.overlay, Some(ClientShellOverlay::Subagent(_))) {
+            self.overlay = None;
+            self.chrome_drag = None;
+        }
+    }
+
+    pub(super) fn current_subagent_input_geometry(
+        &self,
+    ) -> Option<(Rect, Option<Rect>, crate::pane::ScrollMetrics)> {
+        let overlay = match self.overlay.as_ref()? {
+            ClientShellOverlay::Subagent(overlay) => overlay,
+            _ => return None,
+        };
+        let (cols, rows) = self.last_composed_size?;
+        let outer = crate::ui::centered_popup_rect(
+            Rect::new(0, 0, cols, rows),
+            crate::ui::RELEASE_NOTES_MODAL_SIZE.0,
+            crate::ui::RELEASE_NOTES_MODAL_SIZE.1,
+        )?;
+        let inner = Rect::new(
+            outer.x.saturating_add(1),
+            outer.y.saturating_add(1),
+            outer.width.saturating_sub(2),
+            outer.height.saturating_sub(2),
+        );
+        if inner.height < 8 || inner.width < 20 {
+            return None;
+        }
+        let stack = crate::ui::modal_stack_areas(inner, 2, 1, 0, 1);
+        let close = crate::ui::release_notes_close_button_rect(Rect::new(
+            stack.header.x,
+            stack.header.y,
+            stack.header.width,
+            1,
+        ));
+        let display_lines = super::render::subagent_display_lines(overlay);
+        let metrics =
+            crate::ui::plain_lines_scroll_metrics(&display_lines, overlay.scroll, stack.content);
+        let track = crate::ui::release_notes_scrollbar_rect(stack.content, metrics);
+        Some((close, track, metrics))
+    }
+
+    fn current_subagent_max_scroll(&self) -> usize {
+        self.current_subagent_input_geometry()
+            .map(|(_, _, metrics)| metrics.max_offset_from_bottom)
+            .unwrap_or(self.hits.subagent_max_scroll)
+    }
+
+    pub(super) fn scroll_subagent(&mut self, delta: isize) {
+        let max_scroll = self.current_subagent_max_scroll();
+        if let Some(ClientShellOverlay::Subagent(overlay)) = self.overlay.as_mut() {
+            let current = usize::from(overlay.scroll);
+            let next = if delta.is_negative() {
+                current.saturating_sub(delta.unsigned_abs())
+            } else {
+                current.saturating_add(delta as usize)
+            }
+            .min(max_scroll);
+            overlay.scroll = u16::try_from(next).unwrap_or(u16::MAX);
+        }
+    }
+
+    pub(super) fn set_subagent_offset_from_bottom(&mut self, offset_from_bottom: usize) {
+        let max_scroll = self.current_subagent_max_scroll();
+        if let Some(ClientShellOverlay::Subagent(overlay)) = self.overlay.as_mut() {
+            overlay.scroll =
+                u16::try_from(max_scroll.saturating_sub(offset_from_bottom.min(max_scroll)))
+                    .unwrap_or(u16::MAX);
+        }
+    }
+
     pub(super) fn current_release_notes_input_geometry(
         &self,
     ) -> Option<(Rect, Option<Rect>, crate::pane::ScrollMetrics)> {
@@ -558,6 +653,46 @@ impl ClientShellState {
                     let max_scroll = self.current_release_notes_max_scroll();
                     if let Some(ClientShellOverlay::ReleaseNotes(notes)) = self.overlay.as_mut() {
                         notes.scroll = u16::try_from(max_scroll).unwrap_or(u16::MAX);
+                    }
+                    outcome.repaint = true;
+                }
+                _ => {}
+            }
+            return;
+        }
+
+        if matches!(self.overlay, Some(ClientShellOverlay::Subagent(_))) {
+            match key.code {
+                KeyCode::Enter | KeyCode::Esc => {
+                    self.close_subagent_viewer();
+                    outcome.repaint = true;
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    self.scroll_subagent(-1);
+                    outcome.repaint = true;
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    self.scroll_subagent(1);
+                    outcome.repaint = true;
+                }
+                KeyCode::PageUp => {
+                    self.scroll_subagent(-8);
+                    outcome.repaint = true;
+                }
+                KeyCode::PageDown => {
+                    self.scroll_subagent(8);
+                    outcome.repaint = true;
+                }
+                KeyCode::Home => {
+                    if let Some(ClientShellOverlay::Subagent(overlay)) = self.overlay.as_mut() {
+                        overlay.scroll = 0;
+                    }
+                    outcome.repaint = true;
+                }
+                KeyCode::End => {
+                    let max_scroll = self.current_subagent_max_scroll();
+                    if let Some(ClientShellOverlay::Subagent(overlay)) = self.overlay.as_mut() {
+                        overlay.scroll = u16::try_from(max_scroll).unwrap_or(u16::MAX);
                     }
                     outcome.repaint = true;
                 }

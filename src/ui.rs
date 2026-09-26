@@ -22,9 +22,10 @@ pub(crate) use self::panes::{
     apply_pane_chrome, pane_inner_rect, pane_is_scrolled_back, render_selection_highlight,
 };
 pub(crate) use self::release_notes::{
-    product_announcement_display_lines, product_announcement_scroll_metrics,
-    release_notes_close_button_rect, release_notes_display_lines, release_notes_scroll_metrics,
-    PRODUCT_ANNOUNCEMENT_MODAL_SIZE, RELEASE_NOTES_MODAL_SIZE,
+    plain_lines_scroll_metrics, product_announcement_display_lines,
+    product_announcement_scroll_metrics, release_notes_close_button_rect,
+    release_notes_display_lines, release_notes_scroll_metrics, PRODUCT_ANNOUNCEMENT_MODAL_SIZE,
+    RELEASE_NOTES_MODAL_SIZE,
 };
 pub(crate) use self::scrollbar::{
     release_notes_scrollbar_rect, render_pane_scrollbar_buffer, render_scrollbar_buffer,

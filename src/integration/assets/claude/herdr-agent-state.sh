@@ -3,7 +3,7 @@
 # managed by herdr; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
 # HERDR_INTEGRATION_ID=claude
-# HERDR_INTEGRATION_VERSION=10
+# HERDR_INTEGRATION_VERSION=11
 
 set -eu
 
@@ -13,7 +13,7 @@ trap 'rm -f "$hook_input_file"' EXIT HUP INT TERM
 cat >"$hook_input_file" 2>/dev/null || true
 
 case "$action" in
-  session) ;;
+  session|subagent_start|subagent_stop) ;;
   *) exit 0 ;;
 esac
 
@@ -51,38 +51,126 @@ if hook_input_file:
 if "CURSOR_VERSION" in os.environ or "cursor_version" in hook_input:
     raise SystemExit(0)
 hook_event_name = str(hook_input.get("hook_event_name") or "")
-if hook_event_name != "SessionStart":
-    raise SystemExit(0)
-is_subagent = bool(hook_input.get("agent_id"))
-if is_subagent:
-    raise SystemExit(0)
-request_id = f"{source}:{int(time.time() * 1000)}:{random.randrange(1_000_000):06d}"
-report_seq = time.time_ns()
-session_id = hook_input.get("session_id")
-agent_session_id = session_id if isinstance(session_id, str) and session_id else None
-transcript_path = hook_input.get("transcript_path")
-agent_session_path = transcript_path if isinstance(transcript_path, str) and transcript_path else None
-session_start_source = hook_input.get("source") if hook_event_name == "SessionStart" else None
-if not isinstance(session_start_source, str) or not session_start_source:
-    session_start_source = None
-if agent_session_id:
+
+
+def clean_str(value):
+    return value if isinstance(value, str) and value else None
+
+
+def build_request():
+    request_id = f"{source}:{int(time.time() * 1000)}:{random.randrange(1_000_000):06d}"
+    if action == "session":
+        return build_session_request(request_id)
+    if action == "subagent_start":
+        return build_subagent_start_request(request_id)
+    if action == "subagent_stop":
+        return build_subagent_stop_request(request_id)
+    return None
+
+
+def build_session_request(request_id):
+    if hook_event_name != "SessionStart":
+        return None
+    if hook_input.get("agent_id"):
+        return None
+    agent_session_id = clean_str(hook_input.get("session_id"))
+    agent_session_path = clean_str(hook_input.get("transcript_path"))
+    session_start_source = clean_str(hook_input.get("source"))
+    if not agent_session_id:
+        return None
     params = {
         "pane_id": pane_id,
         "source": source,
         "agent": "claude",
-        "seq": report_seq,
+        "seq": time.time_ns(),
         "agent_session_id": agent_session_id,
     }
     if agent_session_path:
         params["agent_session_path"] = agent_session_path
     if session_start_source:
         params["session_start_source"] = session_start_source
-    request = {
+    return {
         "id": request_id,
         "method": "pane.report_agent_session",
         "params": params,
     }
-else:
+
+
+def subagent_fields():
+    agent_id = clean_str(hook_input.get("agent_id"))
+    agent_type = clean_str(hook_input.get("agent_type")) or "unknown"
+    return agent_id, agent_type
+
+
+def build_subagent_start_request(request_id):
+    if hook_event_name != "SubagentStart":
+        return None
+    agent_id, agent_type = subagent_fields()
+    if not agent_id:
+        return None
+    transcript_path = None
+    main_transcript = clean_str(hook_input.get("transcript_path"))
+    session_id = clean_str(hook_input.get("session_id"))
+    if main_transcript and session_id:
+        main_transcript = os.path.expanduser(main_transcript)
+        candidate = os.path.join(
+            os.path.dirname(main_transcript),
+            session_id,
+            "subagents",
+            f"agent-{agent_id}.jsonl",
+        )
+        if os.path.isabs(candidate):
+            transcript_path = candidate
+    return {
+        "id": request_id,
+        "method": "pane.report_agent_subagent",
+        "params": {
+            "pane_id": pane_id,
+            "source": source,
+            "agent": "claude",
+            "event": "start",
+            "agent_id": agent_id,
+            "agent_type": agent_type,
+            "seq": time.time_ns(),
+            **({"transcript_path": transcript_path} if transcript_path else {}),
+        },
+    }
+
+
+def build_subagent_stop_request(request_id):
+    if hook_event_name != "SubagentStop":
+        return None
+    agent_id, agent_type = subagent_fields()
+    if not agent_id:
+        return None
+    agent_transcript = clean_str(hook_input.get("agent_transcript_path"))
+    if agent_transcript:
+        agent_transcript = os.path.expanduser(agent_transcript)
+    last_message = clean_str(hook_input.get("last_assistant_message"))
+    if last_message:
+        last_message = last_message.replace("\n", " ").replace("\r", " ")[:500].strip()
+    params = {
+        "pane_id": pane_id,
+        "source": source,
+        "agent": "claude",
+        "event": "stop",
+        "agent_id": agent_id,
+        "agent_type": agent_type,
+        "seq": time.time_ns(),
+    }
+    if agent_transcript:
+        params["transcript_path"] = agent_transcript
+    if last_message:
+        params["last_assistant_message"] = last_message
+    return {
+        "id": request_id,
+        "method": "pane.report_agent_subagent",
+        "params": params,
+    }
+
+
+request = build_request()
+if not request:
     raise SystemExit(0)
 
 try:

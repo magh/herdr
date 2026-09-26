@@ -161,6 +161,69 @@ fn claude_hook_reports_session_id_from_stdin() {
 }
 
 #[test]
+fn claude_hook_reports_subagent_start() {
+    let request = run_claude_hook(
+        "subagent_start",
+        r#"{"hook_event_name":"SubagentStart","session_id":"sess-1","transcript_path":"/home/u/.claude/projects/p/sess-1.jsonl","agent_id":"agent-42","agent_type":"Explore"}"#,
+    )
+    .expect("subagent start should report");
+
+    assert_eq!(request["method"], "pane.report_agent_subagent");
+    assert_eq!(request["params"]["event"], "start");
+    assert_eq!(request["params"]["pane_id"], "p_test");
+    assert_eq!(request["params"]["agent_id"], "agent-42");
+    assert_eq!(request["params"]["agent_type"], "Explore");
+    assert_eq!(
+        request["params"]["transcript_path"],
+        "/home/u/.claude/projects/p/sess-1/subagents/agent-agent-42.jsonl"
+    );
+    assert!(request["params"].get("last_assistant_message").is_none());
+}
+
+#[test]
+fn claude_hook_reports_subagent_stop() {
+    let request = run_claude_hook(
+        "subagent_stop",
+        r#"{"hook_event_name":"SubagentStop","agent_id":"agent-42","agent_type":"Explore","agent_transcript_path":"/home/u/.claude/projects/p/sess-1/subagents/agent-42.jsonl","last_assistant_message":"Done.\nFound 3 files"}"#,
+    )
+    .expect("subagent stop should report");
+
+    assert_eq!(request["method"], "pane.report_agent_subagent");
+    assert_eq!(request["params"]["event"], "stop");
+    assert_eq!(request["params"]["agent_id"], "agent-42");
+    assert_eq!(
+        request["params"]["transcript_path"],
+        "/home/u/.claude/projects/p/sess-1/subagents/agent-agent-42.jsonl"
+    );
+    assert_eq!(
+        request["params"]["last_assistant_message"],
+        "Done. Found 3 files"
+    );
+}
+
+#[test]
+fn claude_hook_subagent_actions_require_matching_events_and_ids() {
+    // Subagent actions ignore non-matching hook events.
+    assert!(run_claude_hook(
+        "subagent_start",
+        r#"{"hook_event_name":"SessionStart","session_id":"s","agent_id":"a"}"#
+    )
+    .is_none());
+    // Missing agent_id stays silent even for the right event.
+    assert!(run_claude_hook(
+        "subagent_stop",
+        r#"{"hook_event_name":"SubagentStop","agent_type":"Explore"}"#
+    )
+    .is_none());
+    // The session action still drops payloads carrying an agent_id.
+    assert!(run_claude_hook(
+        "session",
+        r#"{"hook_event_name":"SessionStart","session_id":"s","agent_id":"a"}"#
+    )
+    .is_none());
+}
+
+#[test]
 fn claude_hook_ignores_cursor_compatibility_payloads() {
     assert!(run_claude_hook(
         "session",

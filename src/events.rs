@@ -97,6 +97,16 @@ pub enum AppEvent {
         session_ref: Option<crate::agent_resume::AgentSessionRef>,
         session_start_source: Option<String>,
     },
+    /// Agent sub-agent lifecycle was reported for a pane. Purely informational.
+    AgentSubagentReported {
+        pane_id: PaneId,
+        event: crate::terminal::subagents::AgentSubagentEvent,
+        agent_id: String,
+        agent_type: String,
+        last_message: Option<String>,
+        transcript_path: Option<String>,
+        seq: Option<u64>,
+    },
     /// Display-only agent metadata was reported for a pane.
     HookMetadataReported {
         pane_id: PaneId,

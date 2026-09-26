@@ -1088,6 +1088,8 @@ pub struct ClientShellAgent {
     pub state_change_seq: u64,
     pub state_labels: Vec<(String, String)>,
     pub tokens: Vec<(String, String)>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub subagents: Vec<crate::api::schema::AgentSubagentInfo>,
     pub focused: bool,
 }
 
